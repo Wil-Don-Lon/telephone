@@ -15,7 +15,7 @@ experiments. The thesis write-up (`Thesis Final Draft.pdf`) is included as a ref
 for methodology and findings.
 
 > Copyright © William Donnell-Lonon, 2026. See the license header in
-> `experiment/code/telephone.py` for usage and attribution terms.
+> `code/telephone.py` for usage and attribution terms.
 
 ---
 
@@ -47,7 +47,7 @@ analyzed as a form of bias in their own right.
 
 ```bash
 git clone <this-repo>
-cd <repo>/experiment/code      # all scripts live and run here
+cd <repo>/code      # all scripts live and run here
 pip install -r ../../requirements.txt
 python -m nltk.downloader vader_lexicon   # one-time, for sentiment analysis
 # ffmpeg must also be installed (used for animation/video output)
@@ -62,7 +62,7 @@ client code), and optionally a CUDA GPU (CLIP/ArcFace fall back to CPU automatic
 
 ## How to use this framework
 
-All scripts live in `experiment/code/` and are designed to be **run from inside that
+All scripts live in `code/` and are designed to be **run from inside that
 directory** — they read and write relative paths (e.g. `seed_images/`, `output/`) right
 where they run. The typical workflow:
 
@@ -208,4 +208,4 @@ available upon request** — email **williamjlonon@gmail.com**.
 
 If you use this framework in academic work, please cite the accompanying thesis
 (`Thesis Final Draft.pdf`) and credit William Donnell-Lonon, per the license terms in
-`experiment/code/telephone.py`.
+`code/telephone.py`.
