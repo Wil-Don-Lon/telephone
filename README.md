@@ -11,7 +11,7 @@ distortions compound with every pass.
 The framework was built for an honors thesis, but it is **model-agnostic and
 dataset-agnostic**: point it at your own seed images, swap in whichever caption/image
 models you have access to, and run the same pipeline to measure drift in your own
-experiments. The thesis write-up (`Thesis Final Draft.pdf`) is included as a reference
+experiments. The thesis write-up (`Recursion_Regurgitation_Regeneration.pdf`) is included as a reference
 for methodology and findings.
 
 > Copyright © William Donnell-Lonon, 2026. See the license header in
@@ -207,5 +207,5 @@ available upon request** — email **williamjlonon@gmail.com**.
 ## Citation
 
 If you use this framework in academic work, please cite the accompanying thesis
-(`Thesis Final Draft.pdf`) and credit William Donnell-Lonon, per the license terms in
+(`Recursion_Regurgitation_Regeneration.pdf`) and credit William Donnell-Lonon, per the license terms in
 `code/telephone.py`.
