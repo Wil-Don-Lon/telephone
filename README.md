@@ -1,16 +1,21 @@
-# Generative Telephone: Investigating Model Bias Through Multimodal Feedback Loops
+# Generative Telephone — A Framework for Studying Model Bias Through Multimodal Feedback Loops
 
-An honors thesis that probes how bias, distortion, and identity loss accumulate when
-generative AI models are made to talk to one another in a closed loop. The experiment
-plays a game of **"telephone"** between a vision–language captioner and a text-to-image
-generator: an image is described, the description is re-rendered into a new image, the
-new image is described again, and so on. By iterating this caption → image → caption
-cycle, the project measures how quickly visual composition, facial identity, and
-semantic meaning drift away from a real seed image — and what that drift reveals about
-the priors and biases baked into the underlying models.
+This repository provides a **reproducible framework** for investigating how bias,
+distortion, and identity loss accumulate when generative AI models are placed in a closed
+loop. It plays a game of **"telephone"** between a vision–language captioner and a
+text-to-image generator: an image is described, the description is re-rendered into a new
+image, that image is described again, and so on. Iterating this `caption → image →
+caption` cycle exposes the priors and biases baked into the underlying models — small
+distortions compound with every pass.
 
-> Copyright © William Donnell-Lonon, 2026. All rights reserved. See the license header
-> in `experiment/code/telephone.py` for usage and attribution terms.
+The framework was built for an honors thesis, but it is **model-agnostic and
+dataset-agnostic**: point it at your own seed images, swap in whichever caption/image
+models you have access to, and run the same pipeline to measure drift in your own
+experiments. The thesis write-up (`Thesis Final Draft.pdf`) is included as a reference
+for methodology and findings.
+
+> Copyright © William Donnell-Lonon, 2026. See the license header in
+> `experiment/code/telephone.py` for usage and attribution terms.
 
 ---
 
@@ -23,162 +28,184 @@ the priors and biases baked into the underlying models.
                                     repeat for N iterations
 ```
 
-Each pass through the loop is one **iteration**. Several independent **chains** are run
-from each **seed image** so that drift can be measured as a distribution rather than a
-single trajectory. Because nothing external corrects the loop, any small bias in either
-model — toward a demographic, a composition, a stereotype — compounds with every pass.
-The downstream analysis quantifies that compounding along three axes:
+Each pass through the loop is one **iteration**. Several independent **chains** run from
+each **seed image** so drift can be measured as a distribution rather than a single
+trajectory. Because nothing external corrects the loop, any bias in either model — toward
+a demographic, a composition, a stereotype — compounds with each pass. The analysis
+scripts then quantify that drift along three axes:
 
 - **Visual / compositional drift** — CLIP cosine similarity between each generated image and its seed.
 - **Identity drift** — ArcFace face-embedding similarity, tracking how long a person's identity survives.
 - **Semantic drift** — sentence-embedding distance between successive captions, plus sentiment and vocabulary change.
 
-The project also instruments **content-policy refusals**: when a model declines to
-caption or generate, a "post-mortem" prompt investigates why, and the event is logged so
-refusals can be analyzed as a form of bias in their own right.
+Content-policy **refusals** (when a model declines to caption or generate) are logged and
+analyzed as a form of bias in their own right.
 
 ---
 
-## Repository layout
+## Installation
 
+```bash
+git clone <this-repo>
+cd <repo>/experiment/code      # all scripts live and run here
+pip install -r ../../requirements.txt
+python -m nltk.downloader vader_lexicon   # one-time, for sentiment analysis
+# ffmpeg must also be installed (used for animation/video output)
+
+export OPENAI_API_KEY="sk-..."            # required by the generation scripts
 ```
-Thesis/
-├── README.md                  ← you are here
-├── experiment/
-│   ├── code/                  ← all experiment + analysis source (see below)
-│   ├── seed_images/           ← real source images that seed each chain (test 1..15)
-│   ├── output/                ← per-chain results, logs, and master_log.json
-│   │   └── <seed>/<prompt_type>/chain_<N>/   ← images + log.json per chain
-│   ├── *_output/              ← analysis artifacts (clip, face, semantic, group, etc.)
-│   ├── seed_images/, spirals/ ← generated figures and poster assets
-│   └── checkpoint.json        ← resume state for long runs
-├── data/                      ← study image sets (world leaders, sub-study, etc.)
-├── drafts/                    ← thesis writing drafts
-├── printing/                  ← poster / print-ready assets
-└── Thesis Final Draft.{docx,pdf}, Poster Final Draft.pdf, *.pptx
-```
+
+Requirements: Python 3.10+, an OpenAI API key (or another provider if you adapt the
+client code), and optionally a CUDA GPU (CLIP/ArcFace fall back to CPU automatically).
 
 ---
 
-## The code (`experiment/code/`)
+## How to use this framework
 
-### The experiment engine
+All scripts live in `experiment/code/` and are designed to be **run from inside that
+directory** — they read and write relative paths (e.g. `seed_images/`, `output/`) right
+where they run. The typical workflow:
 
-| Script | What it does |
-|---|---|
-| **`telephone.py`** | The heart of the project. Runs the caption → image → caption feedback loop across all seed images. Supports multiple chains per seed, checkpoint/resume (Ctrl+C safe), atomic image writes, rate-limit and timeout retries, content-policy post-mortems, per-chain `log.json` + summaries, token accounting, and a live terminal UI. Captioning via OpenAI Chat **or** Responses API (e.g. `gpt-5.2-chat-latest`); generation via GPT Image (`gpt-image-1.5`). |
+1. **Generate** — drop your seed images in a folder and run `telephone.py` to produce the feedback-loop chains.
+2. **Analyze** — run `clip_analysis.py`, `face_analysis.py`, and `semantic_analysis.py` over the results.
+3. **Visualize** — run `meta_analysis.py` / `results_viz.py` / `spiral_viz.py` to produce figures, tables, and posters.
+4. *(Optional)* **Baseline** — use the `*_sampler.py` scripts to generate no-feedback control distributions for comparison.
 
-### Sampling (baseline / control generation)
+### Adapting it to your own dataset
 
-These produce the *no-feedback* baselines used to separate "drift from the loop" from "raw model variance."
+A few analysis/visualization scripts (`clip_analysis.py`, `face_analysis.py`,
+`semantic_analysis.py`, `spiral_viz.py`, `meta_analysis*.py`) contain a `SEED_METADATA` /
+`SEED_DISPLAY_NAMES` / `CATEGORY_COLORS` block near the top that maps **specific seed
+image names to display labels and categories**. These are placeholders from the original
+study — edit them to match your own seed set (or the category groupings will simply not
+apply). Everything else keys off your seed filenames automatically.
 
-| Script | What it does |
-|---|---|
-| **`caption_sampler.py`** | Generates N independent captions of one seed image, embeds them with sentence-transformers, and selects the **medoid** (most representative) caption. Also flags refusals, sentiment, and word frequency. |
-| **`image_sampler.py`** | Generates N images from a fixed prompt (no loop) and measures variance via pairwise CLIP and ArcFace similarity, optionally scored against a ground-truth seed. Supports single- and multi-face matching. |
-| **`seed_sampler.py`** | Batch pipeline that runs caption + image sampling across many seeds in parallel, with shared checkpoint/resume and aggregate logging. |
+---
 
-### Analysis
+## Script reference
 
-| Script | Measures | Models used |
-|---|---|---|
-| **`clip_analysis.py`** | Compositional preservation/decay of each image vs. its seed; decay curves, heatmaps, regression + ANOVA. | CLIP (ViT-B-32, LAION-2B) |
-| **`face_analysis.py`** | Facial-identity preservation per chain, including when faces disappear entirely; compared against CLIP. | ArcFace (insightface `buffalo_l`) |
-| **`group_photo_analysis.py`** | Positional face matching for multi-person images (detects up to 4 faces left-to-right and matches by position). | ArcFace (insightface) |
-| **`semantic_analysis.py`** | Caption drift (absolute vs. iteration 1, and consecutive), refusal detection, sentiment trajectories, vocabulary divergence, word-bump charts. | sentence-transformers, TextBlob/VADER |
+### Stage 1 — Generation
+
+#### `telephone.py` — the feedback-loop engine
+
+- **Purpose:** Runs the core `caption → image → caption` loop across every seed image, producing multiple independent chains per seed.
+- **Configuration** (top-of-file `CONFIGURATION` block): `SEED_IMAGES_DIR` (default `seed_images`), `OUTPUT_DIR` (`output`), `ITERATIONS` (5), `CHAINS_PER_SEED` (4), the caption model + API mode (`gpt-5.2-chat-latest`, `responses`), the image model (`gpt-image-1.5`), size/quality, and the `PROMPTS` dictionary of captioning styles. Retry, timeout, and post-mortem settings are here too.
+- **Usage:** `python telephone.py` (interactive — prompts for prompt style, chains, iterations, and resume/new-batch). Flags: `--iterations N`, `--chains N`, `--prompt <name>`.
+- **Behavior:** Checkpoint/resume safe (`Ctrl+C` to pause, re-run to continue); atomic image writes; rate-limit/timeout retries; content-policy "post-mortem" investigation on refusals; live terminal UI; per-chain token accounting.
+- **Outputs:** `output/<seed>/<prompt_type>/chain_<N>/` containing each iteration's image, a per-chain `log.json` + `summary.txt`, plus `violations/`, `post_mortem/`, and a `master_log.json` rebuilt across the full run.
+
+### Stage 2 — Analysis
+
+#### `clip_analysis.py` — compositional / visual drift
+
+- **Purpose:** Measures how much each generated image still resembles its seed using CLIP cosine similarity, quantifying compositional decay across iterations.
+- **Configuration:** `SEED_METADATA`, `CATEGORY_COLORS`, `FIGURE_DPI`/`FIGURE_STYLE` (top of file).
+- **Usage:** `python clip_analysis.py --data-dir output --output-dir clip_analysis_output` (`--log` points to `master_log.json`; `--no-clip` reuses cached scores; `--device cpu|cuda`; `--scores-csv` to import precomputed scores).
+- **Models:** CLIP (ViT-B-32, LAION-2B) via `open_clip`.
+- **Outputs:** `clip_analysis_output/` — per-image score CSVs, decay-curve and heatmap figures, preservation tables, and regression/ANOVA summaries.
+
+#### `face_analysis.py` — identity drift
+
+- **Purpose:** Tracks facial-identity preservation per chain and detects the iteration at which a face disappears entirely.
+- **Configuration:** `SEED_METADATA`, `CATEGORY_COLORS`, figure settings.
+- **Usage:** `python face_analysis.py --data-dir output --output-dir face_analysis_output` (`--clip-scores` to overlay CLIP for comparison; `--scores-csv` to import precomputed face scores).
+- **Models:** ArcFace via `insightface` (`buffalo_l`).
+- **Outputs:** `face_analysis_output/` — per-chain identity-match trajectories, CSVs, and CLIP-vs-identity comparison figures.
+
+#### `semantic_analysis.py` — caption / semantic drift
+
+- **Purpose:** Measures how captions evolve — absolute drift vs. iteration 1, relative drift between consecutive captions, sentiment trajectories, refusal detection, and vocabulary divergence.
+- **Configuration:** `SEED_METADATA`, `STOP_WORDS`, `REFUSAL_PATTERNS`, `POSITIVE/NEGATIVE_WORDS`, figure settings.
+- **Usage:** `python semantic_analysis.py --data-dir output --output-dir semantic_output --epoch-size 3` (`--captions-csv` to import precomputed embeddings).
+- **Models/libs:** sentence-transformers, TextBlob, NLTK VADER.
+- **Outputs:** `semantic_output/` — drift CSVs, sentiment heatmaps, word-bump charts, and statistical summaries.
+
+#### `group_photo_analysis.py` — multi-person identity matching
+
+- **Purpose:** For group/multi-face seeds, detects the largest faces left-to-right and matches each by position to the seed's faces, scoring identity preservation per position.
+- **Configuration:** `MAX_FACES` (4), `THRESHOLD` (0.3), `FACE_COLORS`/`FACE_LABELS`.
+- **Usage:** `python group_photo_analysis.py --seed-image <path> --gen-dir <dir> --output-dir group_analysis_output` (both `--seed-image` and `--gen-dir` required).
+- **Models:** ArcFace via `insightface`.
+- **Outputs:** `group_analysis_output/` — per-position identity scores and labeled copies of each generated image.
+
+### Optional — Baseline / control sampling
+
+These generate **no-feedback** distributions, so you can separate "drift caused by the loop" from "raw model variance."
+
+#### `caption_sampler.py` — caption distribution + medoid
+
+- **Purpose:** Generates N independent captions of one image, embeds them, and selects the **medoid** (most representative) caption. Also reports refusals, sentiment, and word frequency.
+- **Usage:** `python caption_sampler.py --image <path> --n 25` (interactive if flags omitted; `--output-dir`, `--name`, `--resume <run_id>`).
+- **Outputs:** `caption_sampler_output/<run>/` — all captions, the `medoid_caption.txt`, and distribution stats.
+
+#### `image_sampler.py` — image distribution + variance
+
+- **Purpose:** Generates N images from a fixed prompt (no loop) and measures variance via pairwise CLIP and ArcFace similarity, optionally scored against a ground-truth seed.
+- **Usage:** `python image_sampler.py --prompt "<text>" --n 25` (`--seed-image` for ground-truth scoring; `--multi-face` for group seeds; `--output-dir`, `--name`, `--resume`).
+- **Models:** GPT Image, CLIP, ArcFace.
+- **Outputs:** `image_sampler_output/<run>/` — the images plus variance/ground-truth score CSVs.
+
+#### `seed_sampler.py` — batch sampling pipeline
+
+- **Purpose:** Runs caption sampling, medoid selection, and image sampling across **many seeds at once**, with shared checkpoint/resume and aggregate logging.
+- **Usage:** `python seed_sampler.py --seed-dir <dir> --n-captions 25 --n-images 25` (`--skip-captions`, `--skip-images`, `--output-dir`, `--device`).
+- **Outputs:** `seed_distributions/` — per-seed sampling results and a master summary.
 
 ### Visualization & reporting
 
-| Script | What it produces |
-|---|---|
-| **`meta_analysis.py`** / **`meta_analysis_vertical.py`** | The main thesis figures: CLIP-vs-ArcFace scatters (aggregate, by iteration, by seed), identity-match trajectories, sentiment heatmaps, per-seed overview tables, and animated progression videos (matplotlib + ffmpeg). |
-| **`results_viz.py`** | A simplified figure suite: scatters, iteration/seed grids, validation comparison, sentiment facets, and optional per-seed chain animations. |
-| **`spiral_viz.py`** | A golden-ratio Fermat-spiral poster arranging every chain image around its center seed image (high-res, configurable cropping/rotation). |
-| **`seed_grid.py`** | A face-centered 3×5 grid of seed crops (auto-detects face centers with insightface). |
-| **`grid_maker.py`** | A simple N×N grid composite of sample images. |
+#### `meta_analysis.py` / `meta_analysis_vertical.py` — main thesis figures
+
+- **Purpose:** Builds the headline figures: CLIP-vs-ArcFace scatters (aggregate, by iteration, by seed), identity-match trajectories, sentiment heatmaps, per-seed overview tables, and **animated progression videos**. `_vertical.py` is a portrait-orientation variant for posters/slides.
+- **Configuration:** `IDENTITY_THRESHOLD` (0.3), `FIGURE_DPI` (200), `VIDEO_FPS` (5), `SEED_DISPLAY_NAMES`.
+- **Usage:** `python meta_analysis.py` (interactive — prompts for the telephone output and baseline directories).
+- **Outputs:** PNG figures, overview CSVs, and MP4 videos (requires ffmpeg).
+
+#### `results_viz.py` — simplified figure suite
+
+- **Purpose:** A lighter-weight version of `meta_analysis.py`: scatters, iteration/seed grids, validation comparison, sentiment facets, an overview table, and optional per-seed chain animations.
+- **Configuration:** `IDENTITY_THRESHOLD`, `FIGURE_DPI`, `VIDEO_FPS`.
+- **Usage:** `python results_viz.py` (interactive).
+- **Outputs:** PNG figures and optional MP4 videos.
+
+#### `spiral_viz.py` — golden-ratio poster
+
+- **Purpose:** Arranges every chain image around its center seed on a Fermat spiral (golden angle) to create a high-resolution poster of a chain's evolution.
+- **Configuration:** `SHAPE` (`full`/`square`/`circle`), `CANVAS_SIZE`, `CELL_GAP`, `SEED_BOOST`, `ROTATE`, and `SEED_METADATA`.
+- **Usage:** `python spiral_viz.py --seed "<name>" --shape circle --size 6000` (`--gap`, `--seed-boost`, `--rotate/--no-rotate`, `--no-label`, `--list` to show available seeds).
+- **Outputs:** A single high-resolution poster PNG.
+
+#### `seed_grid.py` — face-centered seed grid
+
+- **Purpose:** Builds a 3×5 grid of face-centered square crops from your seed images (auto-detects face centers).
+- **Usage:** `python seed_grid.py <seed_dir> --size 400 --gap 4 --label` (`--output` for filename).
+- **Models:** `insightface` for face detection.
+- **Outputs:** A single grid PNG.
+
+#### `grid_maker.py` — simple sample grid
+
+- **Purpose:** Composites `sample_0001.png … sample_0025.png` from a folder into a 5×5 grid.
+- **Usage:** `python grid_maker.py <folder> --cell-size 512 --gap 4 --bg white` (`--output` for filename).
+- **Outputs:** A single grid PNG.
 
 ### Utilities
 
-| Script | What it does |
-|---|---|
-| **`rebuild_master_log.py`** | Rebuilds `master_log.json` by scanning all per-chain logs — aggregating policy blocks, token usage, early stops, and completion stats. Always produces a complete log even across resumed runs. |
+#### `rebuild_master_log.py` — repair / regenerate the run log
 
----
-
-## Getting started
-
-### Requirements
-
-- Python 3.10+
-- An OpenAI API key with access to the caption and image models
-- Python packages — install them all with:
-
-```bash
-pip install -r requirements.txt
-python -m nltk.downloader vader_lexicon   # one-time, for sentiment analysis
-# ffmpeg must also be installed (used for the animation/video outputs)
-```
-
-> Note: model identifiers (`gpt-5.2-chat-latest`, `gpt-image-1.5`) are set at the top of
-> `telephone.py` in the `CONFIGURATION` block. Adjust them, the iteration count, and the
-> chains-per-seed there to match your access and budget.
-
-### 1. Set your API key
-
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-### 2. Run the feedback loop
-
-```bash
-cd experiment
-python code/telephone.py
-```
-
-Drop seed images into `experiment/seed_images/`. Results are written to
-`experiment/output/<seed>/<prompt_type>/chain_<N>/`. The run is resumable — press
-`Ctrl+C` to pause and re-run the same command to continue from the last checkpoint.
-Completed and policy-violated chains are checkpointed so they never re-run.
-
-### 3. Analyze the results
-
-```bash
-cd experiment
-python code/clip_analysis.py     --data-dir output --output-dir clip_analysis_output
-python code/face_analysis.py     --data-dir output
-python code/semantic_analysis.py --data-dir output
-```
-
-### 4. Build figures and the poster
-
-```bash
-python code/meta_analysis.py     # main thesis figures + videos (interactive prompts)
-python code/results_viz.py       # simplified figure suite
-python code/spiral_viz.py --seed "test 1" --shape circle --size 6000
-```
-
-(Most analysis scripts accept `--help` for the full set of options.)
-
----
-
-## Outputs
-
-- **`experiment/output/master_log.json`** — the canonical run record (per-chain results, tokens, policy blocks, completion stats), rebuilt from per-chain `log.json` files.
-- **`experiment/*_output/`** — per-analysis CSVs, statistical summaries, and PNG figures.
-- **`experiment/spirals/`, `seed_grid.png`** — poster and grid visualizations.
+- **Purpose:** Rebuilds `master_log.json` by scanning all per-chain `log.json` files — aggregating policy blocks, token usage, early stops, and completion stats. Always produces a complete log, even across resumed runs.
+- **Usage:** `python rebuild_master_log.py --output-dir output`.
+- **Outputs:** A freshly written `master_log.json`.
 
 ---
 
 ## Datasets
 
-The seed images and study sets included here are a sample. The **full datasets are
+The seed images and study sets used in the thesis are a sample. The **full datasets are
 available upon request** — email **williamjlonon@gmail.com**.
 
 ---
 
-## Thesis documents
+## Citation
 
-The full written thesis, poster, and presentation live in the project root and `drafts/`:
-`Thesis Final Draft.pdf` / `.docx`, `Poster Final Draft.pdf`, and the
-`thesis_presentation_final_draft.pptx` deck.
+If you use this framework in academic work, please cite the accompanying thesis
+(`Thesis Final Draft.pdf`) and credit William Donnell-Lonon, per the license terms in
+`experiment/code/telephone.py`.
