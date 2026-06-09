@@ -1,0 +1,25 @@
+# Core API client
+openai
+requests
+
+# Image handling
+pillow
+numpy
+
+# Data / stats
+pandas
+scipy
+
+# Plotting (ffmpeg required separately for animation/video output)
+matplotlib
+
+# Vision models
+torch
+open_clip_torch          # CLIP (ViT-B-32, LAION-2B) — clip_analysis, image_sampler, seed_sampler
+insightface              # ArcFace face embeddings — face_analysis, group_photo_analysis, seed_grid, image/seed sampler
+onnxruntime              # runtime backend for insightface
+
+# NLP / semantics
+sentence-transformers    # caption embeddings — semantic_analysis, caption_sampler, seed_sampler
+textblob                 # sentiment — semantic_analysis, caption_sampler
+nltk                     # VADER sentiment (run: python -m nltk.downloader vader_lexicon)
